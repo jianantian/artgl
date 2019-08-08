@@ -1,9 +1,6 @@
 import { BaseEffectShading } from "../../core/shading";
-import { MVPWorld } from "../../shader-graph/node-maker";
 import { ShaderFunction } from "../../shader-graph/shader-function";
 import { NormalFragVary, ShaderGraph } from "../../shader-graph/shader-graph";
-import { DepthShading } from './depth';
-
 
 const normalShading = new ShaderFunction({
   source:
@@ -12,12 +9,10 @@ const normalShading = new ShaderFunction({
     }`
 })
 
-export class NormalShading extends BaseEffectShading<DepthShading> {
+export class NormalShading extends BaseEffectShading<NormalShading> {
 
   decorate(graph: ShaderGraph): void {
     graph
-      .setVertexRoot(MVPWorld())
-      .declareFragNormal()
       .setFragmentRoot(
         normalShading.make().input("normal", graph.getVary(NormalFragVary))
       )

@@ -15,51 +15,103 @@ import { Vector3 } from "../math/vector3";
  * @class Geometry
  */
 export abstract class Geometry {
-  constructor() {
-  }
-  name: string
+  name: string = ""
   uuid = generateUUID();
-  readonly bufferDatum: { [index: string]: BufferData } = {};
-  indexBuffer: BufferData;
-  get needUpdate(): boolean{
-    for (const key in this.bufferDatum) {
-      if (this.bufferDatum[key].shouldUpdate) {
-        return true
-      }
-    }
-    return false;
+
+  /**
+   * This for mark VAO need update, if buffer layout has changed,
+   * or bufferData it self changed, we need mark it, and after upload,
+   *  call _markBufferArrayHasUpload set it back;
+   */
+  _bufferArraysChange: boolean = true;
+  _markBufferArrayHasUpload() {
+    this._bufferArraysChange = false;
   }
 
+  _bufferDatum: { [index: string]: BufferData } = {};
+  _indexBuffer: BufferData;
+  
+  getBuffer(name: string) {
+    return this._bufferDatum[name];
+  }
+
+  setBuffer(name: string, data: BufferData) {
+    this._bufferDatum[name] = data;
+    this._bufferArraysChange = true;
+    return this;
+  }
+
+  get indexBuffer() {
+    return this._indexBuffer;
+  }
+
+  set indexBuffer(value: BufferData) {
+    this._indexBuffer = value;
+    this._bufferArraysChange = true;
+  }
+
+  setIndexBuffer(value: BufferData) {
+    this.indexBuffer = value;
+    return this;
+  }
+
+  checkBufferArrayChange() {
+    if (this._bufferArraysChange) {
+      return this._bufferArraysChange
+    }
+    for (const key in this._bufferDatum) {
+      if (this._bufferDatum[key].dataChanged) {
+        this._bufferArraysChange = true;
+        return this._bufferArraysChange;
+      }
+    }
+    return this._bufferArraysChange;
+  }
+
+  _shapeChanged = true;
+  set shapeChanged(value: boolean) {
+    this._shapeChanged = value;
+    if (value) {
+      this._AABBBoxNeedUpdate = true;
+      this._boundingSphereNeedUpdate = true;
+    }
+  };
+
   _AABBBox: Box3 = new Box3();
+  _AABBBoxNeedUpdate = true;
   abstract updateAABBBox(): void;
   get AABBBox(): Box3 {
-    if (this.needUpdate) {
+    if (this._AABBBoxNeedUpdate) {
       this.updateAABBBox();
+      this._AABBBoxNeedUpdate = false;
     }
     return this._AABBBox;
   }
 
   _boundingSphere: Sphere = new Sphere();
+  _boundingSphereNeedUpdate = true;
   abstract updateBoundingSphere(): void;
   get boundingSphere(): Sphere {
-    if (this.needUpdate) {
+    if (this._boundingSphereNeedUpdate) {
       this.updateBoundingSphere();
+      this._boundingSphereNeedUpdate = false;
     }
     return this._boundingSphere;
+  }
+
+  buildShape() {
+    this.shape();
+    this.shapeChanged = true;
   }
 
   /**
    * creat or update the geometry's data in BufferDatum
    */
-  abstract populate(): void;
+  abstract shape(): void;
 
   abstract foreachFace(visitor: (face: Face3) => any, range?: RenderRange): any;
   abstract foreachLineSegment(visitor:  (face: Line3) => any, range?: RenderRange): any;
   abstract foreachVertex(visitor:  (face: Vector3) => any, range?: RenderRange): any;
-
-  dispose() {
-
-  }
 
 }
 

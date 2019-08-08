@@ -5,7 +5,6 @@ import { Matrix4 } from "../math/matrix4";
 import { GLProgram } from "../webgl/program";
 import { Geometry } from "../core/geometry";
 import { BufferData } from "../core/buffer-data";
-import { DrawMode } from "../webgl/const";
 import { Material } from "../core/material";
 import { GLTextureUniform } from "../webgl/uniform/uniform-texture";
 import { PerspectiveCamera } from "../camera/perspective-camera";
@@ -70,6 +69,7 @@ export class RenderEngine implements GLReleasable{
   readonly interactor: Interactor
 
   readonly renderer: GLRenderer;
+
   _preferVAO: boolean = true;
   _vaoEnabled: boolean = false;
   get vaoEnabled(): boolean { return this._vaoEnabled };
@@ -188,12 +188,6 @@ export class RenderEngine implements GLReleasable{
     })
   }
 
-  renderObjects(objects: RenderObject[]) {
-    for (let i = 0; i < objects.length; i++) {
-      this.renderObject(objects[i]);
-    }
-  }
-
   renderObject(object: RenderObject) {
 
     // prepare technique
@@ -210,7 +204,7 @@ export class RenderEngine implements GLReleasable{
     object.state.syncGL(this.renderer)
 
     // render
-    this.renderer.render(object.drawMode, program.useIndexDraw);
+    this.renderer.draw(object.drawMode);
   }
 
   renderFrameBuffer(framebuffer: GLFramebuffer, debugViewPort: Vector4) {
@@ -275,18 +269,20 @@ export class RenderEngine implements GLReleasable{
     this.getGlobalUniform(InnerSupportUniform.MMatrix).setValue(object.worldMatrix);
     program.updateInnerGlobalUniforms(this); // TODO maybe minor optimize here
 
-    shading.uniformProvider.forEach(provider => {
-      if (this.lastUploadedShaderUniformProvider.has(provider)
-        && !provider.hasAnyUniformChanged 
-      ) {
-        // if we found this uniform provider has updated before and not changed, we can skip!
-        return;
-      }
-      provider.uniforms.forEach((value, key) => {
-        program.setUniform(key, value);
+    shading._decorators.forEach(decorator => {
+      decorator.foreachProvider(provider => {
+        if (this.lastUploadedShaderUniformProvider.has(provider)
+          && !provider.hasAnyUniformChanged
+        ) {
+          // if we found this uniform provider has updated before and not changed, we can skip!
+          return;
+        }
+        provider.uniforms.forEach((value, key) => {
+          program.setUniformIfExist(key, value); // maybe user defined, but not really in shader
+        })
+        provider.hasAnyUniformChanged = false;
+        this.lastUploadedShaderUniformProvider.add(provider);
       })
-      provider.hasAnyUniformChanged = false;
-      this.lastUploadedShaderUniformProvider.add(provider);
     })
 
     return program;
@@ -343,7 +339,7 @@ export class RenderEngine implements GLReleasable{
     if (this._vaoEnabled) {
       const vaoManager = this.renderer.vaoManager;
       const webglVAO = vaoManager.getVAO(geometry)
-      if (webglVAO === undefined && geometry.needUpdate) {
+      if (webglVAO === undefined && geometry.checkBufferArrayChange()) {
         vaoManager.deleteVAO(geometry);
         vaoUnbindCallback = vaoManager.createVAO(geometry);
       } else {
@@ -352,17 +348,16 @@ export class RenderEngine implements GLReleasable{
       }
     }
 
-    // no vao procedure
+    // common procedure
     program.forAttributes(att => {
-      // TODO should not by name but by attributeUsage
-      const bufferData = geometry.bufferDatum[att.name];
+      const bufferData = geometry.getBuffer(att.name);
       if (bufferData === undefined) {
-        throw `program ${program.name} needs an attribute named ${att.name}, but cant find in geometry data`;
+        throw `program needs an attribute named ${att.name}, but cant find in geometry data`;
       }
       let glBuffer = this.getGLAttributeBuffer(bufferData);
-      if (glBuffer === undefined && bufferData.shouldUpdate) {
+      if (glBuffer === undefined && bufferData.dataChanged) {
         glBuffer = this.createOrUpdateAttributeBuffer(bufferData, false);
-        bufferData.shouldUpdate = false;
+        bufferData.dataChanged = false;
       }
       att.useBuffer(glBuffer);
     })
@@ -376,11 +371,11 @@ export class RenderEngine implements GLReleasable{
       program.useIndexBuffer(glBuffer);
     }
 
-
     // create vao
     if (this._vaoEnabled) {
-      if (vaoUnbindCallback) {
+      if (vaoUnbindCallback !== undefined) {
         vaoUnbindCallback.unbind();
+        geometry._markBufferArrayHasUpload();
         this.renderer.vaoManager.useVAO(vaoUnbindCallback.vao)
       }
     }
@@ -395,6 +390,9 @@ export class RenderEngine implements GLReleasable{
       } else {
         throw 'range should be set if use none index geometry'
       }
+    } else {
+      start = range.start;
+      count = range.count;
     }
     program.drawFrom = start;
     program.drawCount = count;

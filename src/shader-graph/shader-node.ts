@@ -5,7 +5,7 @@ import {
   InnerSupportUniform, UniformDescriptor,
   InnerUniformMapDescriptor, InnerUniformMap
 } from "../webgl/uniform/uniform";
-import { AttributeUsage, AttributeDescriptor } from "../webgl/attribute";
+import { AttributeDescriptor } from "../webgl/attribute";
 import { Vector2 } from "../math/vector2";
 import { Vector3 } from "../math/index";
 import { Vector4 } from "../math/vector4";
@@ -110,9 +110,13 @@ export class ShaderInnerUniformInputNode extends ShaderInputNode {
 export class ShaderAttributeInputNode extends ShaderInputNode {
   constructor(des: AttributeDescriptor) {
     super(des.name, des.type);
-    this.attributeUsage = des.usage;
   }
-  attributeUsage: AttributeUsage
+
+  isInstance: boolean;
+  makeInstance() {
+    this.isInstance = true;
+    return this;
+  }
 }
 
 // castValidFloat
@@ -149,11 +153,13 @@ export class ShaderConstNode extends ShaderNode {
   shaderString: string;
 }
 
-export class ShaderTexture {
+export class ShaderTextureNode extends ShaderInputNode {
   constructor(
     public name: string,
-    public type: GLTextureType
+    public type: GLDataType,
+    public textureType: GLTextureType
   ) {
+    super(name, type);
   }
 
   fetch(node: ShaderNode): ShaderTextureFetchNode {
@@ -161,24 +167,15 @@ export class ShaderTexture {
   }
 }
 
-function fromGLTextureType2GLDataType(type: GLTextureType): GLDataType {
-  switch (type) {
-    case GLTextureType.texture2D:
-      return GLDataType.floatVec4
-
-    default:
-      throw "not support"
-  }
-}
-
 export class ShaderTextureFetchNode extends ShaderNode {
   constructor(
-    public source: ShaderTexture,
+    public source: ShaderTextureNode,
     public fetchByNode: ShaderNode
   ) {
     super(fetchByNode.type);
+    source.connectTo(this);
     fetchByNode.connectTo(this);
-    this.type = fromGLTextureType2GLDataType(source.type)
+    this.type = GLDataType.floatVec4
   }
 }
 

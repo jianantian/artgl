@@ -1,10 +1,11 @@
 import {
   RenderEngine, Mesh, PerspectiveCamera, OrbitController,
-  OBJLoader, Scene, Observable, Framer
+  OBJLoader, Scene, Observable, Framer, Vector4
 } from '../../src/artgl';
 
 import hierarchyBallBuilder from './scene/hierarchy-balls';
 import { RenderPipeline } from './RenderPipeline';
+import { Raycaster } from '../../src/core/raycaster';
 
 export const STATIC_SERVER = "http://localhost:3000/"
 
@@ -16,6 +17,8 @@ export class Application {
   hasInitialized: boolean = false;
   scene: Scene = new Scene();
   orbitController: OrbitController;
+  raycaster: Raycaster = new Raycaster();
+  backgroundColor: Vector4 = new Vector4();
 
   initialize(canvas: HTMLCanvasElement) {
     this.el = canvas;
@@ -62,6 +65,7 @@ export class Application {
     this.beforeRender.notifyObservers(this.engine);
     this.orbitController.update();
 
+    this.engine.renderer.state.colorbuffer.setClearColor(this.backgroundColor);
     this.pipeline.render(this.engine, this.scene);
 
     this.afterRender.notifyObservers(this.engine);
@@ -77,6 +81,11 @@ export class Application {
       y * this.engine.renderer.height,
       1, 1, result);
     console.log(`${result[0]}`)
+
+    this.raycaster.update(this.engine.camera as PerspectiveCamera, x * 2 - 1, y * 2 - 1);
+    const resultCast = this.raycaster.pick(this.scene);
+    console.log(resultCast);
+    // console.log(resultCast.map(re => re.object.geometry.constructor.name));
   }
 
   run() {
@@ -94,8 +103,9 @@ export class Application {
   }
 
   createScene(scene: Scene): Scene {
-    hierarchyBallBuilder(scene.root);
+    const config = hierarchyBallBuilder(scene.root, this);
     // this.loadOBJFromURL();
+    this.pipeline.config.value.push(config);
     return scene;
   }
 

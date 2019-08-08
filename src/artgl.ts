@@ -3,13 +3,14 @@
 // low level gl layer
 export { GLRenderer } from "./webgl/gl-renderer";
 export { GLProgram } from "./webgl/program";
+export * from "./webgl/const";
 
 // artgl engine layer
 export { RenderEngine } from "./engine/render-engine";
 export { Framer } from "./engine/framer";
 export { InnerSupportUniform } from './webgl/uniform/uniform';
 
-export { RenderObject } from "./core/render-object";
+export * from "./core/render-object";
 export { Mesh } from "./object/mesh";
 export { Line } from "./object/line";
 export { Points } from "./object/points";
@@ -25,6 +26,7 @@ export { DAGNode } from "./core/dag-node";
 // scene
 export { Scene } from "./scene/scene";
 export { SceneNode } from "./scene/scene-node";
+export { Transformation } from "./scene/transformation";
 
 // render graph
 export * from './render-graph/exports';
@@ -37,6 +39,8 @@ export * from './shader-graph/node-maker';
 // shading lib
 export * from './shading/basic-lib/exports';
 export * from './shading/pass-lib/exports';
+
+export * from './light/exports';
 
 // geometry lib
 export { SphereGeometry } from "./geometry/geo-lib/sphere-geometry";

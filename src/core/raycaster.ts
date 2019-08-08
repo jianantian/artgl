@@ -1,6 +1,5 @@
 import { Vector3, Matrix4 } from "../math/index";
 import { Nullable } from "../type";
-import { Camera } from "./camera";
 import { Ray } from "../math/entity/ray";
 import { RenderSource, foreachRenderableInSource } from "../engine/render-engine";
 import { RenderObject } from "./render-object";
@@ -22,7 +21,7 @@ export interface RayCasterable {
   /**
    * get all raycast point on this obj, push the results in results array
    */
-  raycast(raycaster: Raycaster, results: RayCasterable[]);
+  raycast(raycaster: Raycaster, results: RayCastResult[]): RayCastResult[];
 
   /**
    * get first raycast point on this obj, return null if not hit
@@ -34,7 +33,7 @@ export interface RayCasterable {
 /**
  * A general raycast result
  */
-export interface RayCastResult{
+export interface RayCastResult {
 
   /**
    * hit object
@@ -49,34 +48,47 @@ export interface RayCastResult{
   hitLocalPosition: Vector3
 }
 
+export interface ScreenSpaceRayProvider {
+  updateRaycaster(caster: Raycaster, xRate: number, yRate: number): void;
+}
+
 
 /**
  * For raycast a given render source
  */
 export class Raycaster {
-  projection: Matrix4;
-  worldRay: Ray;
-  localRay: Ray;
+  near: number = 0;
+  far: number = 1;
+  worldRay: Ray = new Ray();
+  private localRay: Ray = new Ray();
 
-  results: RayCasterable[] = [];
-
-  setProjection(matrix: Matrix4) {
-    
+  update(rayProvider: ScreenSpaceRayProvider, xRate: number, yRate: number) {
+    rayProvider.updateRaycaster(this, xRate, yRate);
   }
 
-  setProjectionFromCamera(camera: Camera) {
-
+  getLocalRay(worldMatrix: Matrix4): Readonly<Ray> {
+    return this.localRay.copy(this.worldRay).applyMatrix4(worldMatrix);
   }
 
   pick(source: RenderSource, preFilter?: (obj: RenderObject) => boolean) {
+    const results: RayCastResult[] = [];
     foreachRenderableInSource(source, (obj) => {
-      if (preFilter(obj) && (obj as unknown as RayCasterable).raycasterable) {
-        (obj as unknown as RayCasterable).raycast(this, this.results);
+
+      if ((obj as unknown as RayCasterable).raycasterable !== true) {
+        return
       }
+
+      if (preFilter !== undefined && !preFilter(obj)) {
+        return;
+      }
+
+      (obj as unknown as RayCasterable).raycast(this, results);
+
     })
+    return results;
   }
 
   pickFirst(source: RenderSource, preFilter?: (obj: RenderObject) => boolean) {
-    
+
   }
 }

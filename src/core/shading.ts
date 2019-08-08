@@ -1,61 +1,118 @@
 
-import { generateUUID, Vector3, Matrix4 } from "../math";
+import { generateUUID } from "../math";
 import { Nullable } from "../type";
 import { GLProgramConfig, GLProgram } from "../webgl/program";
 import { ShaderGraph } from "../shader-graph/shader-graph";
-import { Observable } from "./observable";
+import { Observable, Observer } from "./observable";
 import { RenderEngine } from "../engine/render-engine";
 import { ShaderCommonUniformInputNode } from '../shader-graph/shader-node';
-import { GLDataType } from '../webgl/shader-util';
-import { Vector2 } from '../math/vector2';
-import { Vector4 } from '../math/vector4';
-import { uniform, uniformFromValue } from '../shader-graph/node-maker';
+import { uniformFromValue } from '../shader-graph/node-maker';
 
-export interface ShaderUniformProvider{
-
+export interface ShaderUniformDecorator {
   /**
   * impl this to decorate your shader source, add uniform input
   */
   decorate(graph: ShaderGraph): void;
-  hasAnyUniformChanged: boolean;
-  uniforms: Map<string, any>;
-  propertyUniformNameMap: Map<string, string>;
+
+  /**
+   * one UniformProvider can have others provider depends and inject, return them in a array
+   */
+  foreachProvider(visitor: (p: ShaderUniformProvider) => any): void;
+
+  notifyNeedRedecorate: Observable<ShaderUniformDecorator>;
 }
 
+type propertyName = string;
+type uniformName = string;
+export interface ShaderUniformProvider {
+
+  // mark any change in this uniform group
+  hasAnyUniformChanged: boolean;
+
+  // mark the shader need recompile
+  uniforms: Map<uniformName, any>;
+  propertyUniformNameMap: Map<propertyName, uniformName>;
+}
+
+type decoratorRegisterName = string;
 export class Shading {
   uuid = generateUUID();
   graph: ShaderGraph = new ShaderGraph();
 
-  programConfigCache: Nullable<GLProgramConfig> = null;
-  needRebuildShader: boolean = true;
+  private _programConfigCache: Nullable<GLProgramConfig> = null;
+  private _needRebuildShader: boolean = true;
 
-  uniformProvider: ShaderUniformProvider[] = [];
+  _decorators: ShaderUniformDecorator[] = [];
+  private _decoratorSlot: Map<decoratorRegisterName, ShaderUniformDecorator> = new Map();
+  private _decoratorObs: Map<ShaderUniformDecorator, Observer<ShaderUniformDecorator>> = new Map();
 
-  decorate(deco: ShaderUniformProvider): Shading {
-    this.uniformProvider.push(deco);
+  updateDecorator(decorator: ShaderUniformDecorator, slot: decoratorRegisterName) {
+    if (slot === undefined) {
+      slot = decorator.constructor.name
+    }
+
+    const previous = this._decoratorSlot.get(slot);
+    if (previous === undefined) {
+      throw `slot ${slot} has not been decorate before`
+    }
+    if (decorator instanceof previous.constructor) {
+      this._decoratorSlot.set(slot, decorator);
+    } else {
+      throw `provider not the same type before`
+    }
+  }
+
+  reset() {
+    this._decoratorObs.forEach((obs, dec) => {
+      dec.notifyNeedRedecorate.remove(obs);
+    })
+    this._decoratorObs.clear();
+    this._decoratorSlot.clear();
+    this._decorators = [];
+    this._needRebuildShader = true;
+    this._programConfigCache = null;
+  }
+
+  decorate(decorator: ShaderUniformDecorator, decorateSlot?: string, ): Shading {
+    if (decorateSlot === undefined) {
+      decorateSlot = decorator.constructor.name
+    }
+
+    if (this._decoratorSlot.has(decorateSlot)) {
+      throw `slot ${decorateSlot} has been decorate before`
+    }
+
+    const obs = decorator.notifyNeedRedecorate.add((_deco) => {
+      this._needRebuildShader = true;
+    })
+    this._decoratorObs.set(decorator, obs);
+
+    this._decoratorSlot.set(decorateSlot, decorator)
+    this._decorators.push(decorator);
     return this;
   }
 
   afterShaderCompiled: Observable<GLProgramConfig> = new Observable();
   build() {
     this.graph.reset()
-    this.uniformProvider.forEach(provider => {
-      provider.decorate(this.graph);
+    this._decorators.forEach(decorator => {
+      decorator.decorate(this.graph);
     })
   }
 
   getProgramConfig() {
-  if (this.needRebuildShader) {
+
+    if (this._needRebuildShader) {
       this.build();
-    this.programConfigCache = this.graph.compile();
-    this.afterShaderCompiled.notifyObservers(this.programConfigCache)
-      this.needRebuildShader = false;
+      this._programConfigCache = this.graph.compile();
+      this.afterShaderCompiled.notifyObservers(this._programConfigCache)
+      this._needRebuildShader = false;
     }
-    return this.programConfigCache;
+    return this._programConfigCache;
   }
 
   getProgram(engine: RenderEngine): GLProgram {
-    if (this.needRebuildShader) {
+    if (this._needRebuildShader) {
       this.disposeProgram(engine);
     }
     let program = engine.getProgram(this);
@@ -71,6 +128,31 @@ export class Shading {
 
 }
 
+export function MarkNeedRedecorate() {
+  return (target: ShaderUniformDecorator, key: string) => {
+    if (target.notifyNeedRedecorate === undefined) {
+      target.notifyNeedRedecorate = new Observable();
+    }
+    let val = target[key];
+    const getter = () => {
+      return val;
+    };
+    const setter = (value) => {
+      const oldValue = val;
+      val = value;
+      if (oldValue !== value) {
+        target.notifyNeedRedecorate.notifyObservers(target);
+      }
+    };
+
+    Object.defineProperty(target, key, {
+      get: getter,
+      set: setter,
+      enumerable: true,
+      configurable: true,
+    });
+  };
+}
 
 
 export function MapUniform(remapName: string) {
@@ -103,7 +185,8 @@ export function MapUniform(remapName: string) {
   };
 }
 
-export abstract class BaseEffectShading<T> implements ShaderUniformProvider{
+export abstract class BaseEffectShading<T>
+  implements ShaderUniformProvider, ShaderUniformDecorator {
   constructor() {
     // need check if has initialized by decorator
     if (this.uniforms === undefined) {
@@ -112,9 +195,19 @@ export abstract class BaseEffectShading<T> implements ShaderUniformProvider{
     if (this.propertyUniformNameMap === undefined) {
       this.propertyUniformNameMap = new Map();
     }
+
+    if (this.notifyNeedRedecorate === undefined) {
+      this.notifyNeedRedecorate = new Observable()
+    }
   }
 
   abstract decorate(graph: ShaderGraph): void;
+
+  foreachProvider(visitor: (p: ShaderUniformProvider) => any) {
+    return visitor(this);
+  }
+
+  notifyNeedRedecorate: Observable<ShaderUniformDecorator>
 
   hasAnyUniformChanged: boolean = true;
   propertyUniformNameMap: Map<string, string>;
@@ -148,7 +241,7 @@ export abstract class BaseEffectShading<T> implements ShaderUniformProvider{
 //         this.propertyUniformNameMap = new Map();
 //       }
 //     }
-    
+
 //     decorate(_graph: ShaderGraph): void {
 //       throw new Error("Method not implemented.");
 //     }

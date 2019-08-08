@@ -12,19 +12,21 @@ export class BufferData{
   static f2(data: number[]): BufferData {
     return new BufferData(new Float32Array(data), 2)
   }
-  static u16Index(data: number[]): BufferData {
-    return new BufferData(new Uint16Array(data), 1)
+  static u32Index(data: number[]): BufferData {
+    return new BufferData(new Uint32Array(data), 1)
   }
 
   constructor(data: BufferDataType, stride: number) {
     this.data = data;
-    this.count = this.data.length / this.stride;
     this.stride = stride;
   }
   data: BufferDataType;
-  count: number = 1;
   stride: number = 1;
-  shouldUpdate = true;
+  dataChanged = true;
+
+  get count() {
+    return this.data.length / this.stride;
+  }
 
   foreach(
     visitor: (data: BufferDataType, index: number, stride: number, countIndex: number) => any,
@@ -37,20 +39,18 @@ export class BufferData{
     }
   }
 
-  setIndex(index: number, value: number, offset?:number) {
-    this.shouldUpdate = true;
-    this.data[index * this.stride + offset === undefined ? 0 : offset] = value;
+  setIndex(index: number, value: number, offset:number) {
+    this.dataChanged = true;
+    this.data[index * this.stride + offset] = value;
   }
 
-  getIndex(index: number, offset?: number): number {
-    this.shouldUpdate = true;
-    return this.data[index * this.stride + offset === undefined ? 0 : offset];
+  getIndex(index: number, offset: number): number {
+    return this.data[index * this.stride + offset];
   }
 
   setData(data: BufferDataType) {
-    this.shouldUpdate = true;
+    this.dataChanged = true;
     this.data = data;
-    this.count = this.data.length / this.stride;
   }
 
   getGLAttribute(engine: RenderEngine): WebGLBuffer {
@@ -60,4 +60,13 @@ export class BufferData{
   getDataSizeByte() {
     return this.data.byteLength;
   }
+}
+
+export class InstancedBufferData extends BufferData{
+  constructor(data: BufferDataType, stride: number, divisor: number) {
+    super(data, stride);
+    this.divisor = divisor;
+  }
+
+  divisor: number = 1;
 }
